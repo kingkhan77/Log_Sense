@@ -1,0 +1,85 @@
+version: "3.9"
+
+# Docker Compose gives us a local environment that mirrors production closely.
+# Three services: the Go app, PostgreSQL, and Redis.
+# They communicate over a shared Docker network ("logsense-net") using
+# service names as hostnames — so the app connects to "postgres:5432"
+# not "localhost:5432". This matters: your DATABASE_URL must use the
+# service name, not localhost, when running inside Docker.
+
+services:
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine   # Alpine = smaller image, same functionality
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: logsense
+      POSTGRES_PASSWORD: logsense
+      POSTGRES_DB: logsense
+    ports:
+      - "5433:5432"             # expose to host so you can connect with psql/DBeaver
+    volumes:
+      # Named volume: data persists across `docker compose down` (but not `down -v`)
+      - postgres_data:/var/lib/postgresql/data
+      # Mount the migration SQL so Postgres runs it on first boot.
+      # The /docker-entrypoint-initdb.d/ directory is a Postgres Docker convention:
+      # any .sql files here run automatically when the container initializes.
+      - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U logsense"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"             # expose to host for redis-cli debugging
+    volumes:
+      - redis_data:/data
+    # redis-server --appendonly yes enables AOF persistence:
+    # Redis writes every command to a log file, so the queue survives restarts.
+    # Without this, a Redis restart wipes your queue — fine for cache,
+    # bad for an event queue where you don't want to lose in-flight events.
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── LogSense App ──────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      # Service name "postgres" resolves to the postgres container's IP
+      # on the Docker network — this is why we don't use localhost here.
+      DATABASE_URL: "postgres://logsense:logsense@postgres:5432/logsense?sslmode=disable"
+      REDIS_URL: "redis:6379"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"  # injected from your .env file
+      GIN_MODE: "debug"                    # change to "release" for production
+    depends_on:
+      postgres:
+        condition: service_healthy  # wait for PG to be ready before starting app
+      redis:
+        condition: service_healthy  # same for Redis
+    # Mount source for hot-reload in development (optional — requires air/reflex)
+    # volumes:
+    #   - .:/app
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: logsense-net
