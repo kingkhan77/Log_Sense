@@ -14,9 +14,9 @@ services:
     image: postgres:16-alpine   # Alpine = smaller image, same functionality
     restart: unless-stopped
     environment:
-      POSTGRES_USER: logsense
-      POSTGRES_PASSWORD: logsense
-      POSTGRES_DB: logsense
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
     ports:
       - "5433:5432"             # expose to host so you can connect with psql/DBeaver
     volumes:
