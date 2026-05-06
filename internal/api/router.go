@@ -36,7 +36,7 @@ func NewRouter(h *Handler) *gin.Engine {
 	{
 		// Ingest — receives log events and pushes to Redis queue.
 		// Implemented in Day 2.
-		v1.POST("/ingest", h.notImplemented("POST /ingest — coming Day 2"))
+		v1.POST("/ingest", h.Ingest)
 
 		// Metrics — returns aggregated metrics from the worker.
 		// Implemented in Day 3.

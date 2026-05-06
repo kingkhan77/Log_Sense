@@ -64,7 +64,7 @@ services:
       # Service name "postgres" resolves to the postgres container's IP
       # on the Docker network — this is why we don't use localhost here.
       DATABASE_URL: "postgres://logsense:logsense@postgres:5432/logsense?sslmode=disable"
-      REDIS_URL: "redis:6379"
+      REDIS_URL: "redis:6380"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"  # injected from your .env file
       GIN_MODE: "debug"                    # change to "release" for production
     depends_on:

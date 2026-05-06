@@ -30,7 +30,7 @@ const LogEventQueueKey = "logsense:queue:log_events"
 func NewRedis(ctx context.Context) (*RedisClient, error) {
 	addr := os.Getenv("REDIS_URL")
 	if addr == "" {
-		addr = "redis:6379" // default for Docker Compose service name
+		addr = "redis:6380" // default for Docker Compose service name
 	}
 
 	client := redis.NewClient(&redis.Options{
