@@ -4,12 +4,12 @@
 # a minimal scratch/distroless image.
 #
 # Why multi-stage?
-# The full Go image (golang:1.22) is ~800MB. The final image just needs the
+# The full Go image (golang:1.24) is ~800MB. The final image just needs the
 # compiled binary — no compiler, no source, no build tools. Result: a ~15MB
 # final image instead of ~800MB. Smaller images = faster deploys on Railway,
 # smaller attack surface, faster pulls.
 
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install git so `go mod download` can fetch modules from VCS if needed.
 RUN apk add --no-cache git

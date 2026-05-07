@@ -15,7 +15,7 @@ type PGPool struct {
 }
 
 // NewPostgres creates a connection pool to PostgreSQL.
-//
+
 // We use a pool (pgxpool) rather than a single connection because our
 // background worker and HTTP handlers may query concurrently. A pool
 // hands out connections from a reusable set — avoids the overhead of

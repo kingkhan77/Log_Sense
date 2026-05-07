@@ -5,13 +5,6 @@ import (
 )
 
 // NewRouter wires all routes to their handlers and returns a configured engine.
-//
-// Separating router setup from main.go keeps the entry point clean and makes
-// it easy to spin up a test server (httptest.NewServer) without importing main.
-//
-// We define all routes here even if the handlers aren't implemented yet —
-// this gives us a complete picture of the API surface and lets us return
-// meaningful 501 Not Implemented responses during development.
 func NewRouter(h *Handler) *gin.Engine {
 	// gin.New() gives us a bare engine without the default Logger and Recovery
 	// middleware — we add them explicitly so we stay in control of what runs.
@@ -40,14 +33,14 @@ func NewRouter(h *Handler) *gin.Engine {
 
 		// Metrics — returns aggregated metrics from the worker.
 		// Implemented in Day 3.
-		v1.GET("/metrics", h.notImplemented("GET /metrics — coming Day 3"))
+		v1.GET("/metrics", h.GetMetrics)
 
 		// Incidents CRUD — implemented in Day 3/4.
 		incidents := v1.Group("/incidents")
 		{
-			incidents.GET("", h.notImplemented("GET /incidents — coming Day 3"))
-			incidents.GET("/:id", h.notImplemented("GET /incidents/:id — coming Day 3"))
-			incidents.POST("/:id/resolve", h.notImplemented("POST /incidents/:id/resolve — coming Day 4"))
+			incidents.GET("", h.GetIncidents)
+			incidents.GET("/:id", h.GetIncidentByID)
+			incidents.POST("/:id/resolve", h.ResolveIncident)
 		}
 	}
 
@@ -57,6 +50,7 @@ func NewRouter(h *Handler) *gin.Engine {
 // notImplemented returns a placeholder handler with a descriptive message.
 // Much better than a 404 — tells future-you (and interviewers) the API was
 // intentionally designed upfront, not discovered ad-hoc.
+// kept fro future use
 func (h *Handler) notImplemented(msg string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(501, gin.H{

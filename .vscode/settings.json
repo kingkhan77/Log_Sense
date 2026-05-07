@@ -1,0 +1,10 @@
+{
+  "go.toolsEnvVars": {
+    "GOTOOLCHAIN": "auto"
+  },
+  "gopls": {
+    "build.env": {
+      "GOTOOLCHAIN": "auto"
+    }
+  }
+}

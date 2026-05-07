@@ -5,7 +5,7 @@
 LogSense is a log-ingestion and incident-detection service designed to turn high-volume application logs into actionable incident records. It solves the gap between raw logs and operational response by ingesting events, aggregating service metrics, detecting anomalies, and attaching AI-readable incident context.
 
 Current and target stack:
-- Go 1.22 with Gin for the HTTP API
+- Go 1.24 (`go.mod`) with Gin for the HTTP API; Docker image builds with Go 1.24 (see editor note below if `gopls` uses Go 1.22)
 - PostgreSQL for durable event, metric, and incident storage
 - Redis List as the ingest queue between API and worker
 - OpenAI GPT-4o-mini (planned) for incident summarization
@@ -75,6 +75,7 @@ Complete current project structure (excluding `.git` internals):
 - `go.mod` - Module definition and direct/indirect dependencies.
 - `go.sum` - Dependency checksums for reproducible builds.
 - `README.md` - Project documentation.
+- `.vscode/settings.json` - Workspace Go tooling env (`GOTOOLCHAIN=auto` for `gopls` when local `go` is older than `go.mod`).
 - `.env.example` - Environment template file (currently present but empty, should be populated).
 
 ## Database Schema
@@ -168,6 +169,10 @@ Routes defined in `internal/api/router.go`:
    - `curl -s http://localhost:8080/health`
 5. Expected shape:
    - `{"status":"ok","timestamp":"...","services":{"postgres":"healthy","redis":"healthy"}}`
+
+### Cursor / `gopls` (packages.Load / `go list`)
+
+If the editor reports `go.mod requires go >= 1.24 (running go 1.22; GOTOOLCHAIN=local)`, reload the window after opening this repo: `.vscode/settings.json` sets `GOTOOLCHAIN=auto` for Go tooling so Go 1.22 can install the required toolchain. If it persists, remove a global `GOTOOLCHAIN=local` from your shell profile, or install Go 1.24+ and ensure `/usr/local/go/bin` is first on `PATH`.
 
 ## Key Design Decisions
 

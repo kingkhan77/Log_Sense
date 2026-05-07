@@ -1,0 +1,21 @@
+[build]
+# Railway auto-detects Go and runs `go build` — but we have a non-standard
+# entrypoint (cmd/server) so we specify it explicitly.
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Railway sends SIGTERM before killing the container.
+# Our graceful shutdown handler catches this and drains in-flight requests.
+startCommand = "./logsense"
+
+# Health check: Railway polls this before marking the deploy as healthy
+# and routing traffic to the new instance. If it returns non-200 within
+# the timeout, Railway rolls back to the previous deploy automatically.
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+
+# Give the app 30s to shut down gracefully before Railway force-kills it.
+# Should be >= your srv.Shutdown timeout in main.go (we use 10s there).
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
