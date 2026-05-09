@@ -27,7 +27,7 @@ services:
       # any .sql files here run automatically when the container initializes.
       - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U logsense"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -63,10 +63,10 @@ services:
       PORT: "8080"
       # Service name "postgres" resolves to the postgres container's IP
       # on the Docker network — this is why we don't use localhost here.
-      DATABASE_URL: "postgres://logsense:logsense@postgres:5432/logsense?sslmode=disable"
-      REDIS_URL: "redis:6380"
+      DATABASE_URL: "postgres://postgres:postgres@postgres:5432/postgres?sslmode=disable"
+      REDIS_URL: "redis://redis:6379"
       OPENAI_API_KEY: "${OPENAI_API_KEY}"  # injected from your .env file
-      GIN_MODE: "debug"                    # change to "release" for production
+      GIN_MODE: "release"                 # change to "debug" for development
     depends_on:
       postgres:
         condition: service_healthy  # wait for PG to be ready before starting app

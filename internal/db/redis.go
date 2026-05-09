@@ -28,20 +28,21 @@ const LogEventQueueKey = "logsense:queue:log_events"
 // go-redis uses a single *redis.Client for pooled connections internally —
 // you don't need to manage a pool yourself unlike with raw TCP connections.
 func NewRedis(ctx context.Context) (*RedisClient, error) {
-	addr := os.Getenv("REDIS_URL")
-	if addr == "" {
-		addr = "redis:6380" // default for Docker Compose service name
+	rawURL := os.Getenv("REDIS_URL")
+	if rawURL == "" {
+		rawURL = "redis://redis:6379"
 	}
 
-	client := redis.NewClient(&redis.Options{
-		Addr: addr,
-
-		// PoolSize controls how many TCP connections go-redis maintains.
+	opts, err := redis.ParseURL(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse REDIS_URL: %w", err)
+	}
+	// PoolSize controls how many TCP connections go-redis maintains.
 		// 10 is a reasonable default for a small service — enough for
 		// concurrent handler goroutines + the worker without contention.
-		PoolSize: 10,
-	})
+	opts.PoolSize = 10
 
+	client := redis.NewClient(opts)
 	if err := client.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("redis ping failed: %w", err)
 	}
