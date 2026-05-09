@@ -11,22 +11,23 @@ import (
 	"time"
 )
 
-// OpenAIClient wraps the OpenAI HTTP API.
-// We call the REST API directly (no SDK) — this keeps dependencies minimal
-// and shows interviewers you understand what's happening under the hood.
+// OpenAIClient implements Summarizer using GPT-4o-mini.
+// It satisfies the Summarizer interface — the compiler enforces this.
 type OpenAIClient struct {
 	apiKey string
 	model  string
 	http   *http.Client
 }
 
-// NewOpenAIClient creates the client from OPENAI_API_KEY env var.
-// Returns an error if the key is missing so main() can decide whether
-// to fatal or run in degraded mode (summaries disabled).
+// Compile-time check: if OpenAIClient ever stops satisfying Summarizer,
+// this line fails to compile with a clear error. Much better than finding
+// out at runtime.
+var _ Summarizer = (*OpenAIClient)(nil)
+
 func NewOpenAIClient() (*OpenAIClient, error) {
 	key := os.Getenv("OPENAI_API_KEY")
 	if key == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY environment variable is not set")
+		return nil, fmt.Errorf("OPENAI_API_KEY is not set")
 	}
 	return &OpenAIClient{
 		apiKey: key,
@@ -50,6 +51,10 @@ func NewOpenAIClient() (*OpenAIClient, error) {
 //     the model can give specific, not generic, advice.
 //  4. We cap output at ~150 words via the prompt instruction — we're storing
 //     this in a text column and displaying it in a dashboard, not writing a novel.
+// Provider implements Summarizer.
+func (c *OpenAIClient) Provider() string { return "openai" }
+
+// SummarizeIncident implements Summarizer.
 func (c *OpenAIClient) SummarizeIncident(ctx context.Context, serviceName, incidentType string, rawContext map[string]any) (string, error) {
 	// Serialize raw_context to a readable key: value block for the prompt.
 	// We build it manually rather than json.Marshal so the model sees
@@ -108,20 +113,20 @@ func (c *OpenAIClient) complete(ctx context.Context, prompt string) (string, err
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", fmt.Errorf("marshal openai request: %w", err)
+		return "", fmt.Errorf("marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://api.openai.com/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("build openai request: %w", err)
+		return "", fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("openai http call: %w", err)
+		return "", fmt.Errorf("http call: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -131,10 +136,10 @@ func (c *OpenAIClient) complete(ctx context.Context, prompt string) (string, err
 
 	var result chatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode openai response: %w", err)
+		return "", fmt.Errorf("decode response: %w", err)
 	}
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("openai returned no choices")
+		return "", fmt.Errorf("no choices returned")
 	}
 
 	return result.Choices[0].Message.Content, nil

@@ -22,16 +22,19 @@ const (
 )
 
 // Worker holds the dependencies needed for background processing.
-// AI client is optional — if nil, summarization is skipped gracefully.
-// This lets the service start even without an OPENAI_API_KEY configured.
+//
+// AI is typed as ai.Summarizer — the interface — not *ai.OpenAIClient.
+// This means the worker has no knowledge of which provider is behind it.
+// Swap OpenAI for Gemini in main.go and this file doesn't change at all.
+// nil = summarization disabled (service runs in degraded mode).
 type Worker struct {
 	PG       *db.PGPool
 	Redis    *db.RedisClient
-	AI       *ai.OpenAIClient // nil = summarization disabled
+	AI       ai.Summarizer // interface, not concrete type
 	interval time.Duration
 }
 
-func New(pg *db.PGPool, redis *db.RedisClient, aiClient *ai.OpenAIClient, interval time.Duration) *Worker {
+func New(pg *db.PGPool, redis *db.RedisClient, aiClient ai.Summarizer, interval time.Duration) *Worker {
 	return &Worker{PG: pg, Redis: redis, AI: aiClient, interval: interval}
 }
 
@@ -229,7 +232,8 @@ func (w *Worker) maybeCreateIncident(ctx context.Context, metric models.LogMetri
 // summarizeIncident calls OpenAI and updates the incident row with the result.
 // Runs in its own goroutine — all errors are logged, never propagated.
 func (w *Worker) summarizeIncident(ctx context.Context, incident models.Incident) {
-	log.Printf("[worker] requesting AI summary for incident %s", incident.ID)
+	log.Printf("[worker] requesting AI summary for incident %s (provider: %s)",
+		incident.ID, w.AI.Provider())
 
 	// 45s timeout for the OpenAI call — generous but bounded.
 	// The HTTP client has its own 30s timeout, this is an outer safety net.

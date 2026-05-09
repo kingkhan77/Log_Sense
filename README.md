@@ -8,7 +8,7 @@ Current and target stack:
 - Go 1.24 (`go.mod`) with Gin for the HTTP API; Docker image builds with Go 1.24 (see editor note below if `gopls` uses Go 1.22)
 - PostgreSQL for durable event, metric, and incident storage
 - Redis List as the ingest queue between API and worker
-- OpenAI GPT-4o-mini (planned) for incident summarization
+- OpenAI GPT-4o-mini (primary) with Gemini 2.5 Flash Lite (automatic fallback) for incident summarization
 - Docker Compose for local multi-service orchestration
 - Railway as the intended deployment target
 
@@ -20,7 +20,7 @@ LogSense follows a producer-consumer pipeline:
 3. Background worker drains queue in batches (`LRANGE + LTRIM` pipeline).
 4. Worker bulk-persists events to `log_events` and computes window metrics (`p95`, error rate).
 5. Worker runs anomaly rules and creates `incidents` rows when thresholds are crossed.
-6. New incidents are summarized by OpenAI GPT-4o-mini (planned Day 4).
+6. New incidents are summarized asynchronously via `FallbackSummarizer` (OpenAI first, Gemini fallback).
 7. API serves incident data via `GET /api/v1/incidents` and `GET /api/v1/incidents/:id`.
 
 ```text
@@ -40,7 +40,10 @@ Background Worker (30s tick)
 PostgreSQL: log_events/log_metrics  Anomaly Rules -> incidents
                                         |
                                         v
-                                OpenAI GPT-4o-mini (planned)
+                          FallbackSummarizer (provider chain)
+                                   |                 |
+                                   v                 v
+                              OpenAI GPT-4o-mini   Gemini 2.5 Flash Lite
                                         |
                                         v
                          GET /api/v1/incidents (+ /:id)
@@ -55,7 +58,9 @@ Complete current project structure (excluding `.git` internals):
 - `cmd/server/main.go` - Initializes env/dependencies, starts worker and Gin server, handles graceful shutdown.
 - `internal/` - Private application modules.
 - `internal/ai/` - AI integration package.
-- `internal/ai/openai.go` - Placeholder package file for upcoming OpenAI client integration.
+- `internal/ai/openai.go` - OpenAI GPT-4o-mini summarizer implementation.
+- `internal/ai/gemini.go` - Gemini 2.5 Flash Lite summarizer implementation (`GEMINI_API_KEY`).
+- `internal/ai/fallback.go` - `FallbackSummarizer` wrapper that tries providers in priority order until one succeeds.
 - `internal/api/` - HTTP routing and handlers.
 - `internal/api/router.go` - Defines all API routes and `501` placeholders for unfinished endpoints.
 - `internal/api/handler.go` - Handler dependency injection and implemented `/health` endpoint.
@@ -144,23 +149,23 @@ Routes defined in `internal/api/router.go`:
 
 - `GET /health` - **Implemented** (`200` when dependencies are healthy, `503` when degraded)
 - `POST /api/v1/ingest` - **Implemented** (`202 Accepted`, validates payload and enqueues to Redis)
-- `GET /api/v1/metrics` - **Stubbed** (`501 Not Implemented`)
-- `GET /api/v1/incidents` - **Stubbed** (`501 Not Implemented`)
-- `GET /api/v1/incidents/:id` - **Stubbed** (`501 Not Implemented`)
-- `POST /api/v1/incidents/:id/resolve` - **Stubbed** (`501 Not Implemented`)
+- `GET /api/v1/metrics` - **Implemented** (returns latest aggregated service metrics)
+- `GET /api/v1/incidents` - **Implemented** (returns recent incidents with count)
+- `GET /api/v1/incidents/:id` - **Implemented** (returns one incident by ID, `404` if missing)
+- `POST /api/v1/incidents/:id/resolve` - **Implemented** (resolves open incident and sets `resolved_at`)
 
 ## Day-by-Day Build Plan
 
 - Day 1 (**DONE**): project structure, DB schema, Docker Compose, `/health` endpoint, graceful shutdown, dependency injection pattern.
 - Day 2 (**DONE, tested**): `POST /ingest` handler, Redis `LPUSH`, worker drain logic (`LRANGE+LTRIM` pipeline), bulk insert into `log_events`, p95 latency aggregation.
-- Day 3 (**TODO**): anomaly detection (error rate `>5%`, latency `>2x` baseline), incident creation with JSONB `raw_context`, `GET /incidents`, `GET /incidents/:id`, `GET /metrics`.
-- Day 4 (**TODO**): OpenAI GPT-4o-mini summarization on new incidents, `POST /incidents/:id/resolve`, full Docker Compose bring-up, Railway deployment.
+- Day 3 (**DONE, tested**): anomaly detection (error rate `>5%`, latency `>2x` baseline), incident creation with JSONB `raw_context`, `GET /incidents`, `GET /incidents/:id`, `GET /metrics`.
+- Day 4 (**DONE**): AI incident summarization with OpenAI primary and Gemini fallback, incident resolution endpoint, Docker Compose bring-up validation, and Railway deployment readiness.
 
 ## How to Run Locally
 
 1. Create env file:
    - If `.env.example` exists: `cp .env.example .env`
-   - `.env.example` is currently empty, so populate `.env` manually with `DATABASE_URL`, `REDIS_URL`, and `OPENAI_API_KEY`.
+   - `.env.example` is currently empty, so populate `.env` manually with `DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, and `GEMINI_API_KEY`.
 2. Start dependencies:
    - `docker compose up -d postgres redis`
 3. Run the API:
@@ -178,6 +183,9 @@ If the editor reports `go.mod requires go >= 1.24 (running go 1.22; GOTOOLCHAIN=
 
 - `LRANGE + LTRIM` drain pipeline: batches queue reads/removals in one Redis round-trip to reduce race risk between read and trim.
 - Dependency injection via structs: `Handler` and `Worker` receive explicit dependencies, avoiding globals and improving testability.
+- `Summarizer` interface boundary: worker depends on `ai.Summarizer` abstraction, so provider swaps happen in composition (`main.go`) rather than business logic.
+- Compile-time interface checks (`var _ Summarizer = (*OpenAIClient)(nil)` / Gemini equivalent): provider implementations fail fast at compile time if they drift from the contract.
+- `FallbackSummarizer` wrapper over worker-side `if/else`: keeps failover policy in the AI layer, preserves single-responsibility in worker code, and makes provider ordering configurable.
 - Multi-stage Dockerfile: compiles in builder stage and ships minimal runtime image for smaller deploy artifacts.
 - Graceful shutdown on `SIGTERM`/`SIGINT`: server drains inflight requests and worker exits via shared cancellable context.
 - Redis List as queue: simple, fast producer-consumer primitive suitable for current single-worker phase.
@@ -185,14 +193,16 @@ If the editor reports `go.mod requires go >= 1.24 (running go 1.22; GOTOOLCHAIN=
 
 ## Current Status
 
-Day 1 and Day 2 are complete and tested end-to-end.
+All planned phases (Day 1 through Day 4) are complete.
 
 Validation completed:
 - `POST /api/v1/ingest` accepts events and enqueues them in Redis.
 - Worker drains queue on tick (`LLEN` observed moving from `10` to `0` after processing).
 - Processed events are persisted in `log_events`.
 - Aggregates are persisted in `log_metrics` (including p95/error rate).
-- Incident dedup is active (`high_error_rate` incident remains open without duplicate creation).
+- Incident APIs (`GET /incidents`, `GET /incidents/:id`, `POST /incidents/:id/resolve`) are implemented and tested.
+- AI summarization chain is active with automatic OpenAI -> Gemini fallback behavior.
 
-Immediate next step:
-- Start Day 3 endpoints and query paths: `GET /api/v1/metrics`, `GET /api/v1/incidents`, and `GET /api/v1/incidents/:id`.
+Current state:
+- All endpoints are implemented and tested.
+- LogSense is ready for Railway deployment.

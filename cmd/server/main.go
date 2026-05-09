@@ -46,20 +46,38 @@ func main() {
 	defer redis.Close()
 	log.Println("[main] redis connected")
 
-	// --- OpenAI (optional) ---
-	// We don't fatal if OpenAI is unavailable — the service runs in degraded
-	// mode with ai_summary left empty. This is intentional: don't let a missing
-	// API key prevent the core observability pipeline from working.
-	aiClient, err := ai.NewOpenAIClient()
+	// --- AI Summarizer (optional) ---
+	// The worker depends on ai.Summarizer — an interface — not a concrete client.
+	// To switch providers, change what you construct here. Nothing else changes.
+	//
+	// Currently: we try OpenAI first, then Gemini fallback if OpenAI fails.
+	var summarizer ai.Summarizer
+	providers := make([]ai.Summarizer, 0, 2)
+
+	openaiClient, err := ai.NewOpenAIClient()
 	if err != nil {
-		log.Printf("[main] WARNING: OpenAI unavailable — AI summarization disabled: %v", err)
-		aiClient = nil
+		log.Printf("[main] OpenAI unavailable: %v", err)
 	} else {
-		log.Println("[main] OpenAI client ready")
+		providers = append(providers, openaiClient)
+	}
+
+	geminiClient, err := ai.NewGeminiClient()
+	if err != nil {
+		log.Printf("[main] Gemini unavailable: %v", err)
+	} else {
+		providers = append(providers, geminiClient)
+	}
+
+	summarizer = ai.NewFallbackSummarizer(providers...)
+	if summarizer == nil {
+		log.Printf("[main] WARNING: no AI provider available — incident summarization disabled")
+	} else {
+		log.Printf("[main] AI summarizer ready (provider chain: %s)", summarizer.Provider())
 	}
 
 	// --- Worker ---
-	w := worker.New(pg, redis, aiClient, 30*time.Second)
+	// summarizer may be nil — worker handles that gracefully.
+	w := worker.New(pg, redis, summarizer, 30*time.Second)
 	go w.Start(ctx)
 	log.Println("[main] background worker started")
 
